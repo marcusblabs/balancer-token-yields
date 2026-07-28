@@ -18,8 +18,14 @@ Yield advertised on a token does not all arrive.
   for a pool is the Balancer **Vault** — and no Merkl `forwarder` is configured on any campaign
   checked, so nothing routes them onward to LPs.
 
-`waMonAUSD` is the clearest case: **1.87% reaches an LP** while **10.07% is advertised and never
-arrives** (6.25% Aave reward + 3.82% Merkl). `wnUSDT0` advertises ~2.5% and delivers 0.54%.
+`waMonAUSD` is the clearest case: **1.87% reaches an LP**, while Aave advertises a 6.25% reward on
+the AUSD reserve and Merkl runs a ~3.9% campaign on the wrapper — neither of which arrives.
+
+**Those two are never added.** The Merkl campaign's own `protocol` field reads *Aave*, it targets
+`waMonAUSD`, and it pays WMON: it is very likely the same programme as the reserve reward, measured
+on a different base. An earlier version summed them into a "10.07% not received" figure, which was
+double counting. They are now reported in separate columns, ranked by the larger of the two, and
+flagged with `≈` where both are present.
 
 ## Why the numbers can be trusted
 

@@ -8,13 +8,23 @@ const CHAIN_SHORT = {
 const short = (c) => CHAIN_SHORT[c] || String(c).slice(0, 4)
 const pct = (v, dp = 2) => (v == null ? null : v.toFixed(dp) + '%')
 
-// Everything advertised on a token that never arrives: lending-market rewards
-// and Merkl campaigns alike are claimable distributions, not rate accrual, so
-// a pool holding the token earns none of it.
-const notReceived = (t) => {
-  const reward = t.lending?.reward || 0
-  const merkl = t.merkl && !t.merkl.reachesLp ? t.merkl.apr : 0
-  return reward + merkl
+/**
+ * Incentives advertised on a token that a pool's LPs never receive.
+ *
+ * Deliberately NOT summed. The two sources overlap: waMonAUSD carries a 6.25%
+ * "Aave reward" from DefiLlama's AUSD reserve entry AND a Merkl campaign whose
+ * own `protocol` field reads Aave, targeting waMonAUSD and paying WMON. Those
+ * are very likely one programme measured on two bases, so adding them invented
+ * a 10.07% figure. They are reported separately, and ranking uses the larger of
+ * the two rather than a total.
+ */
+const unreceived = (t) => ({
+  reward: t.lending?.reward || 0,
+  merkl: t.merkl && !t.merkl.reachesLp ? t.merkl.apr : 0,
+})
+const unreceivedMax = (t) => {
+  const u = unreceived(t)
+  return Math.max(u.reward, u.merkl)
 }
 
 const COLS = [
@@ -25,7 +35,8 @@ const COLS = [
   { k: 'generates', l: 'Generates', a: 'r', t: 'The rate the token itself produces, before Balancer takes its share.' },
   { k: 'cut', l: 'Bal. cut', a: 'r', t: 'Balancer’s protocol yield fee (10%, or 0 where the token is exempt).' },
   { k: 'reaches', l: 'Reaches LP', a: 'r', key: true, t: 'What a liquidity provider actually earns from holding this token in a pool. Balancer’s own yield attribution, de-weighted to the token.' },
-  { k: 'lost', l: 'Advertised, not received', a: 'r', t: 'Lending-market rewards plus Merkl campaigns. Both are claimable distributions rather than rate accrual, so they never reach the pool.' },
+  { k: 'reward', l: 'Lending reward', a: 'r', t: 'Incentive the lending market advertises on the underlying reserve. A claimable distribution, not rate accrual, so it does not reach the pool.' },
+  { k: 'merkl', l: 'Merkl on token', a: 'r', t: 'Merkl campaign targeting this token directly. Credited to whoever holds the token — for a pool that is the Balancer Vault — and with no forwarder configured it goes no further. May be the same programme as the lending reward; the two are not additive.' },
 ]
 
 function sortVal(t, k) {
@@ -37,7 +48,8 @@ function sortVal(t, k) {
     case 'generates': return t.generates
     case 'cut': return t.balancerCut
     case 'reaches': return t.reachesLp
-    case 'lost': return notReceived(t)
+    case 'reward': return unreceived(t).reward
+    case 'merkl': return unreceived(t).merkl
     default: return null
   }
 }
@@ -71,7 +83,7 @@ export default function TokenTable({ data }) {
       (t) =>
         (under === 'ALL' || t.underlying?.symbol === under) &&
         (chain === 'ALL' || t.chain === chain) &&
-        (!onlyLost || notReceived(t) > 0) &&
+        (!onlyLost || unreceivedMax(t) > 0) &&
         (!needle ||
           t.symbol?.toLowerCase().includes(needle) ||
           t.name?.toLowerCase().includes(needle) ||
@@ -93,13 +105,13 @@ export default function TokenTable({ data }) {
   const click = (k) =>
     setSort((s) => (s.k === k ? { k, d: s.d === 'asc' ? 'desc' : 'asc' } : { k, d: ['symbol', 'underlying', 'chain', 'source'].includes(k) ? 'asc' : 'desc' }))
 
-  const totalLost = rows.filter((t) => notReceived(t) > 0).length
+  const totalLost = rows.filter((t) => unreceivedMax(t) > 0).length
 
   return (
     <>
       <div className="statstrip">
         <div><span className="sl">Tokens</span><span className="sv">{rows.length}</span></div>
-        <div><span className="sl">Advertised but unreceived</span><span className="sv" style={{ color: 'var(--red)' }}>{totalLost}</span></div>
+        <div><span className="sl">Tokens leaking incentives</span><span className="sv" style={{ color: 'var(--red)' }}>{totalLost}</span></div>
         <div><span className="sl">Merkl on token</span><span className="sv">{data.counts.withMerkl}<span className="sv-sub"> · {data.counts.merklReachingLps} reach LPs</span></span></div>
         <div><span className="sl">Cross-checked</span><span className="sv">{data.counts.crosscheckAgree}<span className="sv-sub">/{data.counts.crosschecked}</span></span></div>
         <div><span className="sl">Updated</span><span className="sv sm">{String(data.generatedAt).slice(0, 10)}</span></div>
@@ -143,7 +155,8 @@ export default function TokenTable({ data }) {
           </thead>
           <tbody>
             {rows.map((t) => {
-              const lost = notReceived(t)
+              const u = unreceived(t)
+              const overlap = u.reward > 0 && u.merkl > 0
               return (
                 <tr key={t.key}>
                   <td className="pool">
@@ -182,13 +195,19 @@ export default function TokenTable({ data }) {
                   </td>
                   <td className="r num reach pos">{pct(t.reachesLp) || <span className="dim">—</span>}</td>
                   <td className="r num">
-                    {lost > 0
+                    {u.reward > 0
                       ? <>
-                          <span className="strike">{lost.toFixed(2)}%</span>
-                          <span className="lost" title={[
-                            t.lending?.reward ? `${t.lending.reward.toFixed(2)}% ${t.lending.project} reward` : null,
-                            t.merkl && !t.merkl.reachesLp ? `${t.merkl.apr.toFixed(2)}% Merkl (no forwarder to LPs)` : null,
-                          ].filter(Boolean).join(' + ')}>✕</span>
+                          <span className="strike">{u.reward.toFixed(2)}%</span>
+                          <span className="lost" title={`Advertised by ${t.lending.project} on the ${t.underlying?.symbol} reserve. Claimable rewards, so it never compounds into the token's rate — which is why "Generates" matches the base rate alone.`}>✕</span>
+                        </>
+                      : <span className="dim">—</span>}
+                  </td>
+                  <td className="r num">
+                    {u.merkl > 0
+                      ? <>
+                          <span className="strike">{u.merkl.toFixed(2)}%</span>
+                          <span className="lost" title={`${t.merkl.name} — credited to the token holder (the Balancer Vault) with no forwarder to LPs.${overlap ? ' NOTE: this pool also shows a lending reward; the two may be the same programme, so do not add them.' : ''}`}>✕</span>
+                          {overlap && <span className="mini warn" title="May be the same incentive as the lending reward — not additive">≈</span>}
                         </>
                       : <span className="dim">—</span>}
                   </td>
@@ -204,6 +223,7 @@ export default function TokenTable({ data }) {
         <span><span className="xc ok">✓</span>cross-checked against the lending market’s own quote</span>
         <span><span className="xc no">Δ</span>differs — usually two stacked yield sources</span>
         <span><span className="ut inferred">ETH ?</span>underlying inferred, not from the API</span>
+        <span><span className="mini warn">≈</span>lending reward and Merkl may be one programme — never add them</span>
       </div>
     </>
   )
