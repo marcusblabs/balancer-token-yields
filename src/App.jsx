@@ -49,10 +49,14 @@ export default function App() {
           same token independently return the same number. That figure is already net of the
           protocol yield fee, so “Generates” reverses the fee back out.{' '}
           <b>Why the split matters.</b> Base lending and staking yield compounds into the token’s
-          exchange rate, so a pool holding it benefits automatically. Lending-market rewards and
-          Merkl campaigns do not: they are distributed to whoever holds the token, which for a pool
-          is the Balancer Vault — and with no Merkl <code>forwarder</code> configured, nothing
-          routes them onward to LPs. Sources: Balancer API, DefiLlama yields, Merkl v4.
+          exchange rate, so a pool holding it benefits automatically — that is the “Reaches LP”
+          column, and it matches Aave’s own Protocol APY (2.07% for waMonAUSD against 2.06% here).
+          Incentives work differently: Merkl runs a separate campaign per audience. waMonAUSD
+          carries three at once — 6.25% for lending AUSD directly on Aave, 3.91% for holding the
+          wrapper, and 7.37% for providing liquidity to the Balancer pool that holds it. Only the
+          last is an LP’s, and Balancer already reports it on the pool. A campaign in these columns
+          is therefore <b>not</b> yield leaking away from LPs; it belongs to someone else.{' '}
+          Sources: Balancer API, DefiLlama yields, Merkl v4.
           {' '}Data refreshed {String(data.generatedAt).slice(0, 10)}; tokens in pools above $
           {data.minTvl.toLocaleString()} TVL.
         </p>

@@ -6,26 +6,30 @@ reaches a liquidity provider**.
 
 Live: https://marcusblabs.github.io/balancer-token-yields/
 
-## The finding
+## The distinction the page makes
 
-Yield advertised on a token does not all arrive.
+**Rate yield reaches an LP; incentive campaigns are aimed at specific audiences.**
 
-- **Base lending/staking yield compounds into the token's exchange rate.** `waBasGHO` becomes
-  worth more GHO over time, so a pool holding it benefits automatically. This *does* reach LPs,
-  less Balancer's 10% protocol yield fee (0% where the token is exempt).
-- **Lending-market rewards (`apyReward`) and Merkl campaigns do not.** Both are claimable
-  distributions rather than rate accrual. They are credited to whoever *holds* the token — which
-  for a pool is the Balancer **Vault** — and no Merkl `forwarder` is configured on any campaign
-  checked, so nothing routes them onward to LPs.
+- **Base lending/staking yield compounds into the token's exchange rate.** `waBasGHO` becomes worth
+  more GHO over time, so a pool holding it benefits automatically. This reaches LPs, less
+  Balancer's 10% protocol yield fee (0% where the token is exempt). The figure matches Aave's own
+  Protocol APY — 2.07% for AUSD on Monad against 2.06% derived here.
+- **Incentives are per-audience, and Merkl runs a separate campaign for each.** `waMonAUSD` has
+  three live at once:
 
-`waMonAUSD` is the clearest case: **1.87% reaches an LP**, while Aave advertises a 6.25% reward on
-the AUSD reserve and Merkl runs a ~3.9% campaign on the wrapper — neither of which arrives.
+  | Campaign | Target | Earned by |
+  |---|---|---|
+  | Lend AUSD on Aave — 6.25% | Aave reserve | direct suppliers |
+  | Hold Wrapped Aave Monad AUSD — 3.91% | the wrapper | wallet holders |
+  | Provide liquidity to Balancer avUSD-waMonAUSD — 7.37% | the pool | **LPs** |
 
-**Those two are never added.** The Merkl campaign's own `protocol` field reads *Aave*, it targets
-`waMonAUSD`, and it pays WMON: it is very likely the same programme as the reserve reward, measured
-on a different base. An earlier version summed them into a "10.07% not received" figure, which was
-double counting. They are now reported in separate columns, ranked by the larger of the two, and
-flagged with `≈` where both are present.
+  Only the last belongs to an LP, and Balancer already reports it on the pool (8.64% `MERKL` apr
+  item there). So a campaign shown in this page's incentive columns is **not** yield leaking away
+  from LPs — it belongs to someone else.
+
+An earlier version got this wrong twice: it summed the first two into a fabricated "10.07% not
+received", and struck them through as lost. Both are corrected. The columns are never added — the
+same programme frequently appears under more than one target.
 
 ## Why the numbers can be trusted
 
