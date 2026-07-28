@@ -59,6 +59,16 @@ that lending rewards never reach the pool.
 Precomputed nightly into `public/tokens.json` — the Balancer API rate-limits bursty callers and
 DefiLlama's payload is ~11 MB; neither belongs in a page load.
 
+### Detecting which tokens yield
+
+A token counts as yield-bearing if **Balancer itself attributes an `IB_YIELD` apr item to it** in
+any pool. That is a direct statement and outranks inference. The ERC4626 flag and `priceRate` are
+fallbacks only, for pools carrying no apr item yet.
+
+This matters: an earlier version keyed on `isErc4626 || priceRate > 1` and silently dropped
+**rsETH**, whose `priceRate` reads exactly `1` in a pool that nonetheless credits it 1.27%
+`IB_YIELD`. The same bug hid **wstETH on two chains**. Five tokens were missing.
+
 ## Caveats
 
 - Underlying is only exposed by the API for ERC4626 wrappers. For rate-provider tokens (LSTs) it

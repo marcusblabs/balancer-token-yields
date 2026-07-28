@@ -20,7 +20,9 @@ import { CHAIN_META, INFERRED_UNDERLYING } from './sources.js'
 // Below this share of pool value the division amplifies rounding badly — a
 // token that is 0.5% of a pool would turn a 0.01% apr item into a 2% claim.
 const MIN_VALUE_SHARE = 0.02
-// A rate provider whose rate never exceeds 1 is not paying yield.
+// Fallback only. Not a reliable test on its own: rsETH reports priceRate of
+// exactly 1 in a pool that nonetheless credits it 1.27% IB_YIELD, so keying on
+// the rate alone silently dropped it.
 const RATE_EPSILON = 1.0000001
 
 const median = (xs) => {
@@ -30,7 +32,16 @@ const median = (xs) => {
   return s.length % 2 ? s[m] : (s[m - 1] + s[m]) / 2
 }
 
-const isYieldBearing = (t) => t.isErc4626 || +t.priceRate > RATE_EPSILON
+/**
+ * Is this token yield-bearing?
+ *
+ * An IB_YIELD apr item naming the token is Balancer stating it directly, and
+ * outranks any inference. The wrapper flag and price rate are fallbacks for
+ * pools that carry no apr item yet — they are proxies, and rsETH proves they
+ * can be wrong: priceRate reads exactly 1 in a pool that credits it 1.27%.
+ */
+const isYieldBearing = (t, hasIbItem) =>
+  hasIbItem || t.isErc4626 || +t.priceRate > RATE_EPSILON
 
 /** Group every yield-bearing token across pools, keeping per-pool observations. */
 export function extractTokens(pools) {
@@ -43,9 +54,12 @@ export function extractTokens(pools) {
     const aprItems = pool.dynamicData?.aprItems || []
 
     for (const t of pool.poolTokens || []) {
-      if (!isYieldBearing(t)) continue
       // A composable-stable pool holds its own BPT; that is not a yield token.
       if (t.address.toLowerCase() === pool.address.toLowerCase()) continue
+      const ibItem = aprItems.find(
+        (a) => a.type === 'IB_YIELD' && a.rewardTokenAddress?.toLowerCase() === t.address.toLowerCase()
+      )
+      if (!isYieldBearing(t, !!ibItem)) continue
 
       const key = `${pool.chain}:${t.address.toLowerCase()}`
       const entry = byToken.get(key) || {
@@ -68,9 +82,7 @@ export function extractTokens(pools) {
       entry.tvlInPools += +t.balanceUSD || 0
       entry.pools.push({ address: pool.address.toLowerCase(), name: pool.name, chain: pool.chain })
 
-      const ib = aprItems.find(
-        (a) => a.type === 'IB_YIELD' && a.rewardTokenAddress?.toLowerCase() === t.address.toLowerCase()
-      )
+      const ib = ibItem
       const share = (+t.balanceUSD || 0) / tvl
       if (ib && share >= MIN_VALUE_SHARE) {
         entry.observations.push({
