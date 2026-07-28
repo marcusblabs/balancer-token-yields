@@ -1,0 +1,54 @@
+name: Refresh token data and deploy
+
+# Rates move daily and the sources are heavy — the Balancer API rate-limits
+# bursty callers and DefiLlama's yields payload is ~11 MB — so the table is
+# precomputed here rather than fetched in the browser.
+
+on:
+  schedule:
+    - cron: '23 5 * * *' # 05:23 UTC, off the hour to avoid the stampede
+  workflow_dispatch:
+  push:
+    branches: [main]
+
+permissions:
+  contents: write
+
+concurrency:
+  group: deploy
+  cancel-in-progress: false
+
+jobs:
+  build-deploy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - run: npm ci
+
+      # Keep the committed tokens.json if a source is down, rather than
+      # shipping an empty table.
+      - name: Refresh token data
+        run: npm run scan
+        continue-on-error: true
+
+      - run: npm run build
+
+      - name: Publish dist to gh-pages
+        run: |
+          cd dist
+          git init -q -b gh-pages
+          git config user.name  "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git commit -q -m "Deploy ${GITHUB_SHA::7}"
+          git push -q --force \
+            "https://x-access-token:${GITHUB_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" gh-pages
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
